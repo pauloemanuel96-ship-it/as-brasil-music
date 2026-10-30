@@ -8,3 +8,7 @@ capas/*
 !capas/.htaccess
 .DS_Store
 Thumbs.db
+
+# Gerados no GitHub Actions
+catalogo.json
+faixas/_capas/

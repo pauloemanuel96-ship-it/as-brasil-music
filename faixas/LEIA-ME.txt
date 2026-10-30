@@ -1,0 +1,7 @@
+Coloque aqui suas músicas (MP3, M4A, WAV, OGG, FLAC ou WEBM).
+
+- O título e o artista vêm das informações do próprio arquivo. Sem elas, vale o nome do arquivo.
+- Para escolher a capa, coloque uma imagem com o MESMO nome da música:
+  "Minha Musica.mp3" + "Minha Musica.jpg"
+- Para mudar o nome do site ou a frase de apresentação, edite site.json.
+- Depois do push, o site atualiza sozinho em 1 ou 2 minutos.

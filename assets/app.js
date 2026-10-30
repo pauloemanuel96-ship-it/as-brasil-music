@@ -50,7 +50,7 @@ async function apiCall(path, { method = 'GET', json, body, headers = {} } = {}) 
 
 /* ---------- estado ---------- */
 const DEFAULT = { v: 1, site: { name: 'AS Brasil Music', tagline: 'Dê o play e continue ouvindo enquanto usa outros apps.', artist: 'AS Brasil Music' }, tracks: [] };
-const S = { cat: clone(DEFAULT), published: clone(DEFAULT), loaded: false, dirty: false, filter: 'all', q: '', admin: false, jobs: [], highlight: null, busy: 0 };
+const S = { cat: clone(DEFAULT), published: clone(DEFAULT), loaded: false, static: false, dirty: false, filter: 'all', q: '', admin: false, jobs: [], highlight: null, busy: 0 };
 const favs = new Set(LS.get('asbm:favs') || []);
 const byId = id => S.cat.tracks.find(t => t.id === id);
 const artistOf = t => t.artist || S.cat.site.artist;
@@ -207,7 +207,7 @@ function renderList() {
   const list = visibleTracks();
   const el = $('#list');
   if (!S.cat.tracks.length) {
-    el.innerHTML = `<li class="empty"><strong>Nenhuma faixa por aqui ainda</strong>${S.admin ? 'Envie suas primeiras músicas pelo Estúdio.<br><button class="btn btn-primary" id="emptyUp">' + I.upload + '<span>Enviar músicas</span></button>' : 'Volte em breve para ouvir as novidades.'}</li>`;
+    el.innerHTML = `<li class="empty"><strong>Nenhuma faixa por aqui ainda</strong>${S.static ? 'Envie arquivos para a pasta faixas do repositório e eles aparecem aqui.' : S.admin ? 'Envie suas primeiras músicas pelo Estúdio.<br><button class="btn btn-primary" id="emptyUp">' + I.upload + '<span>Enviar músicas</span></button>' : 'Volte em breve para ouvir as novidades.'}</li>`;
     $('#emptyUp')?.addEventListener('click', openStudio);
     return;
   }
@@ -721,16 +721,24 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.busy) { e.preven
 /* ---------- inicialização ---------- */
 renderHero();
 (async () => {
+  let cat = null;
   try {
-    const cat = await apiCall('catalog.php');
-    if (cat && Array.isArray(cat.tracks)) { S.cat = cat; S.published = clone(cat); }
+    cat = await apiCall('catalog.php');
     if (cat && cat.limiteMb) MAX_MB = cat.limiteMb;
-  } catch {
-    toast('Não foi possível carregar as músicas. Atualize a página em instantes.');
+  } catch {}
+  if (!cat || !Array.isArray(cat.tracks)) {
+    // Sem PHP (ex.: GitHub Pages): usa o catálogo gerado a partir da pasta faixas/
+    try {
+      const r = await fetch('catalogo.json', { cache: 'no-store' });
+      if (r.ok) { cat = await r.json(); S.static = true; }
+    } catch {}
   }
+  if (cat && Array.isArray(cat.tracks)) { S.cat = cat; S.published = clone(cat); }
+  else toast('Não foi possível carregar as músicas. Atualize a página em instantes.');
   S.loaded = true;
+  if (S.static) $('#adminLink').hidden = true;
   renderAll();
   applyHash();
-  try { const me = await apiCall('me.php'); if (me && me.logado) { CSRF = me.csrf; setAdmin(true); } } catch {}
+  if (!S.static) { try { const me = await apiCall('me.php'); if (me && me.logado) { CSRF = me.csrf; setAdmin(true); } } catch {} }
 })();
 })();
