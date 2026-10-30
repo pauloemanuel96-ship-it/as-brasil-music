@@ -1,5 +1,6 @@
 /* Página do motorista: identifica o veículo e controla a JAM */
 import { connect } from './backend.js';
+import { PASSAGEIROS } from './config.js';
 import { $, esc, fmt, params, toArray, vehicleId, applyTheme, toast, qrSvg, baseUrl, copy, I } from './common.js';
 import { JamEngine } from './sync.js';
 
@@ -68,7 +69,7 @@ async function start() {
     const listenUrl = baseUrl() + `index.html?e=${encodeURIComponent(ev)}&v=${encodeURIComponent(v)}`;
     app.innerHTML = head() + `<div id="screen"></div>`;
     b.listen(`jams/${ev}/${v}`, j => { jam = j; engine.setState(j && j.state); render(); });
-    b.listen(`listeners/${ev}/${v}`, l => { count = l ? Object.keys(l).length : 0; render(); });
+    if (PASSAGEIROS) b.listen(`listeners/${ev}/${v}`, l => { count = l ? Object.keys(l).length : 0; render(); });
     const beat = () => b.update(`jams/${ev}/${v}/info`, { updated: { '.sv': 'timestamp' } }).catch(() => {});
     beat(); setInterval(beat, 60000);
 
@@ -97,7 +98,7 @@ async function start() {
           <div class="label"><small>Veículo</small><b>${esc(label)}</b></div></div>
         <div class="row" style="justify-content:center;margin-bottom:14px">
           ${live ? '<span class="pill live">JAM ao vivo</span>' : '<span class="pill">JAM parada</span>'}
-          <span class="pill">${I.users}${count} ouvindo</span></div>
+          ${PASSAGEIROS ? `<span class="pill">${I.users}${count} ouvindo</span>` : ''}</div>
         <div class="now card"><div class="t">${t ? esc(t.title) : 'Toque no play para começar'}</div>
           <div class="a">${t ? esc(t.artist || '') : tracks.length + ' músicas na playlist'}</div>
           <div class="bar"><i id="pb"></i></div><div class="times"><span id="tc">0:00</span><span id="td">0:00</span></div></div>
@@ -106,21 +107,21 @@ async function start() {
           <button class="main" id="pp" aria-label="${live ? 'Pausar a JAM' : 'Tocar a JAM'}">${live ? I.pause : I.play}</button>
           <button class="ctl" id="nx" aria-label="Próxima música">${I.next}</button>
         </div>
-        ${stopped ? `<div class="card" style="text-align:center"><p style="margin:0 0 10px">Seu celular parou o som (ligação ou outro app). <b>A JAM continua para os passageiros.</b></p><button class="btn btn-main" id="rs">Voltar a tocar aqui</button></div>` : ''}
+        ${stopped ? `<div class="card" style="text-align:center"><p style="margin:0 0 10px">O som parou (ligação ou outro app). A playlist segue no tempo certo: toque para voltar.</p><button class="btn btn-main" id="rs">Voltar a tocar aqui</button></div>` : ''}
         ${!live && engine.joined === false && jam && jam.state ? '' : ''}
-        <div class="card" style="text-align:center;margin-top:14px">
+        ${PASSAGEIROS ? `<div class="card" style="text-align:center;margin-top:14px">
           <p style="margin:0 0 10px;font-weight:800">Passageiros: aponte a câmera</p>
           <div class="qr">${qrSvg(listenUrl)}</div>
           <p class="muted" style="font-size:.82rem;margin:10px 0 0">Ou pelo link do embarque, escolhendo o veículo ${esc(label)}.</p>
           <p style="margin:10px 0 0"><button class="btn btn-ghost btn-sm" id="cp">${I.copy}<span>Copiar link</span></button></p>
-        </div>
+        </div>` : ''}
         <p style="text-align:center;margin-top:16px"><button class="btn btn-ghost btn-sm" id="sw">Trocar veículo</button></p>
         <p class="muted" style="font-size:.84rem;text-align:center">Conecte o celular ao som do veículo pelo Bluetooth. Depois do play, não precisa mexer: pode bloquear a tela.</p>`;
       $('#pp').addEventListener('click', () => send(live ? 'pause' : 'play'));
       $('#nx').addEventListener('click', () => send('next'));
       $('#pv').addEventListener('click', () => send('prev'));
       $('#rs')?.addEventListener('click', () => engine.resumeMine());
-      $('#cp').addEventListener('click', () => copy(listenUrl));
+      $('#cp')?.addEventListener('click', () => copy(listenUrl));
       $('#sw').addEventListener('click', () => { localStorage.removeItem('asmd-driver'); location.reload(); });
       progress();
     }

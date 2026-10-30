@@ -1,5 +1,6 @@
 /* Painel de administração: eventos, tema, playlist, pontos de embarque e monitor ao vivo */
 import { connect, TS } from './backend.js';
+import { PASSAGEIROS } from './config.js';
 import { $, $$, esc, fmt, toArray, rid, slug, toast, qrSvg, baseUrl, copy, applyTheme, THEMES, I } from './common.js';
 import { measure, calcTimeline } from './sync.js';
 
@@ -172,18 +173,18 @@ function tabPontos(e) {
   $('#tab').innerHTML = `<div class="card"><b>Novo ponto de embarque</b>
       <div class="grid2" style="margin-top:10px"><label class="field"><span>Nome do ponto</span><input id="pn" placeholder="Ex.: Shopping Center Norte"></label>
       <label class="field"><span>Horário de saída</span><input id="ph" type="time"></label></div>
-      <div class="row"><button class="btn btn-main btn-sm" id="padd">Adicionar ponto</button>${ids.length ? '<button class="btn btn-ghost btn-sm" id="print">Imprimir QR dos passageiros</button>' : ''}</div></div>
+      <div class="row"><button class="btn btn-main btn-sm" id="padd">Adicionar ponto</button>${ids.length && PASSAGEIROS ? '<button class="btn btn-ghost btn-sm" id="print">Imprimir QR dos passageiros</button>' : ''}</div></div>
     ${ids.map(pid => { const p = pts[pid]; const k = tk[pid];
       const drv = k ? `${base}motorista.html?e=${encodeURIComponent(sel)}&p=${pid}&k=${k}` : '';
       const pas = `${base}index.html?e=${encodeURIComponent(sel)}&p=${pid}`;
       return `<div class="card point"><div><b style="font-size:1.1rem">${esc(p.name)}</b> <span class="muted">${esc(p.time || '')}</span>
           <p class="muted" style="font-size:.8rem;margin:10px 0 0">LINK DO MOTORISTA (envie só para os motoristas)</p>
           <div class="link"><code>${esc(drv || 'gerando…')}</code><button class="ib" data-cp="${esc(drv)}" aria-label="Copiar">${I.copy}</button></div>
-          <p class="muted" style="font-size:.8rem;margin:10px 0 0">LINK DOS PASSAGEIROS</p>
-          <div class="link"><code>${esc(pas)}</code><button class="ib" data-cp="${esc(pas)}" aria-label="Copiar">${I.copy}</button></div>
+          ${PASSAGEIROS ? `<p class="muted" style="font-size:.8rem;margin:10px 0 0">LINK DOS PASSAGEIROS</p>
+          <div class="link"><code>${esc(pas)}</code><button class="ib" data-cp="${esc(pas)}" aria-label="Copiar">${I.copy}</button></div>` : ''}
           <div class="row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-new="${pid}">Gerar novo link de motorista</button><button class="btn btn-danger btn-sm" data-rm="${pid}">Remover ponto</button></div></div>
         <div class="qrbox">${drv ? `<div class="qr">${qrSvg(drv)}</div>Motorista` : ''}</div>
-        <div class="qrbox"><div class="qr">${qrSvg(pas)}</div>Passageiros</div></div>`; }).join('')}`;
+        ${PASSAGEIROS ? `<div class="qrbox"><div class="qr">${qrSvg(pas)}</div>Passageiros</div>` : ''}</div>`; }).join('')}`;
   $('#padd').addEventListener('click', async () => {
     const name = $('#pn').value.trim(); if (!name) { toast('Dê um nome ao ponto.'); return; }
     const pid = (slug(name).slice(0, 16).replace(/-+$/, '') || 'ponto') + '-' + rid(3); const k = rid(12);
@@ -208,8 +209,8 @@ function tabPontos(e) {
 
 /* ---- Ao vivo ---- */
 function tabAoVivo(e) {
-  $('#tab').innerHTML = `<div class="kpis"><div class="kpi"><b id="k1">0</b><small>veículos conectados</small></div><div class="kpi"><b id="k2">0</b><small>tocando agora</small></div><div class="kpi"><b id="k3">0</b><small>passageiros ouvindo</small></div></div>
-    <div class="card scroll"><table class="live"><thead><tr><th>Veículo</th><th>Motorista</th><th>Embarque</th><th>Status</th><th>Música</th><th>Ouvintes</th><th></th></tr></thead><tbody id="lv"></tbody></table></div>`;
+  $('#tab').innerHTML = `<div class="kpis"><div class="kpi"><b id="k1">0</b><small>veículos conectados</small></div><div class="kpi"><b id="k2">0</b><small>tocando agora</small></div>${PASSAGEIROS ? '<div class="kpi"><b id="k3">0</b><small>passageiros ouvindo</small></div>' : ''}</div>
+    <div class="card scroll"><table class="live"><thead><tr><th>Veículo</th><th>Motorista</th><th>Embarque</th><th>Status</th><th>Música</th>${PASSAGEIROS ? '<th>Ouvintes</th>' : ''}<th></th></tr></thead><tbody id="lv"></tbody></table></div>`;
   let jams = {}, lis = {};
   const draw = () => {
     const tracks = toArray((events[sel] || {}).playlist); const pts = (events[sel] || {}).points || {};
@@ -222,14 +223,14 @@ function tabAoVivo(e) {
       const stale = now - (j.info.updated || 0) > 5 * 60e3;
       return `<tr><td><b>${esc(j.info.label)}</b></td><td>${esc(j.info.driver || '')}</td><td>${esc((pts[j.info.point] || {}).name || '')}</td>
         <td>${tl && tl.playing ? '<span class="pill live">Tocando</span>' : '<span class="pill">Parado</span>'}${stale ? ' <span class="muted" style="font-size:.78rem">motorista offline</span>' : ''}</td>
-        <td>${t ? esc(t.title) + ' <span class="muted">' + fmt(tl.pos) + '</span>' : ''}</td><td>${n}</td>
+        <td>${t ? esc(t.title) + ' <span class="muted">' + fmt(tl.pos) + '</span>' : ''}</td>${PASSAGEIROS ? `<td>${n}</td>` : ''}
         <td><button class="btn btn-danger btn-sm" data-end="${esc(v)}">Encerrar</button></td></tr>`;
     }).join('') || '<tr><td colspan="7" class="muted">Nenhum veículo conectado ainda.</td></tr>';
-    $('#k1').textContent = rows.length; $('#k2').textContent = playing; $('#k3').textContent = total;
+    $('#k1').textContent = rows.length; $('#k2').textContent = playing; if ($('#k3')) $('#k3').textContent = total;
     $$('[data-end]').forEach(x => x.addEventListener('click', async () => { if (confirm('Encerrar a JAM deste veículo?')) { await b.remove(`jams/${sel}/${x.dataset.end}`); await b.remove(`listeners/${sel}/${x.dataset.end}`); } }));
   };
   unsubs.push(b.listen('jams/' + sel, j => { jams = j || {}; draw(); }));
-  unsubs.push(b.listen('listeners/' + sel, l => { lis = l || {}; draw(); }));
+  if (PASSAGEIROS) unsubs.push(b.listen('listeners/' + sel, l => { lis = l || {}; draw(); }));
   const t = setInterval(() => { if (!$('#lv')) return clearInterval(t); draw(); }, 3000);
   unsubs.push(() => clearInterval(t));
 }

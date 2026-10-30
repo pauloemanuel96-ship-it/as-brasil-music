@@ -1,5 +1,6 @@
 /* Página do passageiro: escolhe o veículo e ouve junto com o motorista */
 import { connect } from './backend.js';
+import { PASSAGEIROS } from './config.js';
 import { $, esc, fmt, params, toArray, vehicleId, applyTheme, toast, I } from './common.js';
 import { JamEngine } from './sync.js';
 
@@ -14,7 +15,8 @@ function shell(inner) {
     <p class="foot">Ouça com fone para não atrapalhar quem está ao lado.</p>`;
 }
 
-if (!ev) { app.innerHTML = '<h1>Link incompleto</h1><p class="sub">Escaneie de novo o QR Code do seu embarque.</p>'; }
+if (!PASSAGEIROS) { app.innerHTML = '<div class="brandbar"><span class="dot"></span>AS Music Driver</div><h1>Em breve</h1><p class="sub">A JAM para passageiros ainda não está disponível.</p>'; }
+else if (!ev) { app.innerHTML = '<h1>Link incompleto</h1><p class="sub">Escaneie de novo o QR Code do seu embarque.</p>'; }
 else start();
 
 async function start() {

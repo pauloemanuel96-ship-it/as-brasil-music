@@ -7,3 +7,9 @@
  * tudo funciona, mas só entre abas do mesmo navegador (bom para testar).
  */
 export const firebaseConfig = null;
+
+/*
+ * Acesso dos passageiros (ouvir junto pelo celular).
+ * false = só motorista e admin. Mude para true quando quiser liberar os clientes.
+ */
+export const PASSAGEIROS = false;

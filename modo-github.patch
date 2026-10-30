@@ -1,0 +1,344 @@
+diff --git a/.github/scripts/gerar_catalogo.py b/.github/scripts/gerar_catalogo.py
+new file mode 100644
+index 0000000..3994222
+--- /dev/null
++++ b/.github/scripts/gerar_catalogo.py
+@@ -0,0 +1,151 @@
++"""Gera catalogo.json a partir das músicas na pasta faixas/.
++
++Roda no GitHub Actions antes de publicar no GitHub Pages.
++- Título e artista vêm das tags do arquivo (ID3 etc.); sem tags, usa o nome do arquivo.
++- Capa: um .jpg/.png com o mesmo nome da música, ou a capa embutida no arquivo.
++- Ordem: as enviadas mais recentemente aparecem primeiro.
++- Nome do site, frase e artista padrão: faixas/site.json (opcional).
++"""
++import hashlib
++import json
++import re
++import subprocess
++from pathlib import Path
++from urllib.parse import quote
++
++try:
++    import mutagen
++except ImportError:  # sem mutagen, segue só com o nome do arquivo
++    mutagen = None
++
++ROOT = Path(__file__).resolve().parents[2]
++FAIXAS = ROOT / "faixas"
++CAPAS_GERADAS = FAIXAS / "_capas"
++AUDIO = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".opus", ".flac", ".webm"}
++IMAGENS = (".jpg", ".jpeg", ".png", ".webp")
++
++SITE_PADRAO = {
++    "name": "AS Brasil Music",
++    "tagline": "Dê o play e continue ouvindo enquanto usa outros apps.",
++    "artist": "AS Brasil Music",
++}
++
++
++def url(p: Path) -> str:
++    return quote(p.relative_to(ROOT).as_posix())
++
++
++def titulo_do_arquivo(nome: str) -> str:
++    t = re.sub(r"_+", " ", Path(nome).stem)
++    t = re.sub(r"^\d{1,3}\s*[-.]\s*", "", t)
++    return re.sub(r"\s+", " ", t).strip() or "Sem título"
++
++
++def data_no_git(p: Path) -> int:
++    try:
++        out = subprocess.run(
++            ["git", "log", "--diff-filter=A", "--format=%ct", "-1", "--", str(p.relative_to(ROOT))],
++            cwd=ROOT, capture_output=True, text=True, check=False,
++        ).stdout.strip()
++        return int(out) if out else int(p.stat().st_mtime)
++    except Exception:
++        return int(p.stat().st_mtime)
++
++
++def ler_tags(p: Path):
++    info = {"title": "", "artist": "", "album": "", "dur": 0, "capa": None}
++    if not mutagen:
++        return info
++    try:
++        f = mutagen.File(p)
++    except Exception:
++        return info
++    if f is None:
++        return info
++    if getattr(f, "info", None) and getattr(f.info, "length", None):
++        info["dur"] = int(round(f.info.length))
++    tags = f.tags or {}
++
++    def pega(*chaves):
++        for k in chaves:
++            try:
++                v = tags.get(k)
++            except Exception:
++                v = None
++            if v:
++                v = v[0] if isinstance(v, (list, tuple)) else v
++                v = getattr(v, "text", [v])
++                v = v[0] if isinstance(v, (list, tuple)) else v
++                if str(v).strip():
++                    return str(v).strip()
++        return ""
++
++    info["title"] = pega("TIT2", "\xa9nam", "title", "TITLE")
++    info["artist"] = pega("TPE1", "\xa9ART", "artist", "ARTIST")
++    info["album"] = pega("TALB", "\xa9alb", "album", "ALBUM")
++
++    # capa embutida
++    try:
++        for k in list(tags.keys()):
++            if str(k).startswith("APIC"):
++                info["capa"] = tags[k].data
++                break
++        if not info["capa"] and "covr" in tags:
++            info["capa"] = bytes(tags["covr"][0])
++        if not info["capa"] and getattr(f, "pictures", None):
++            info["capa"] = f.pictures[0].data
++    except Exception:
++        pass
++    return info
++
++
++def main():
++    site = dict(SITE_PADRAO)
++    cfg = FAIXAS / "site.json"
++    if cfg.is_file():
++        try:
++            dados = json.loads(cfg.read_text(encoding="utf-8"))
++            for k in site:
++                if isinstance(dados.get(k), str) and dados[k].strip():
++                    site[k] = dados[k].strip()
++        except Exception as e:
++            print("Aviso: faixas/site.json inválido:", e)
++
++    faixas = []
++    if FAIXAS.is_dir():
++        for p in sorted(FAIXAS.iterdir()):
++            if not p.is_file() or p.suffix.lower() not in AUDIO:
++                continue
++            tags = ler_tags(p)
++            h = hashlib.sha1(p.name.encode("utf-8")).hexdigest()
++            capa = None
++            for ext in IMAGENS:
++                irma = p.with_suffix(ext)
++                if irma.is_file():
++                    capa = url(irma)
++                    break
++            if not capa and tags["capa"]:
++                CAPAS_GERADAS.mkdir(exist_ok=True)
++                destino = CAPAS_GERADAS / f"{h[:16]}.jpg"
++                destino.write_bytes(tags["capa"])
++                capa = url(destino)
++            faixas.append({
++                "id": "t" + h[:12],
++                "title": tags["title"] or titulo_do_arquivo(p.name),
++                "artist": tags["artist"],
++                "album": tags["album"],
++                "dur": tags["dur"],
++                "file": url(p),
++                "cover": capa,
++                "hue": 255 + int(h[12:16], 16) % 65,
++                "added": data_no_git(p),
++            })
++
++    faixas.sort(key=lambda t: (-t["added"], t["title"].lower()))
++    cat = {"v": 1, "site": site, "tracks": faixas}
++    (ROOT / "catalogo.json").write_text(json.dumps(cat, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(f"catalogo.json gerado com {len(faixas)} faixa(s).")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/.github/workflows/pages.yml b/.github/workflows/pages.yml
+new file mode 100644
+index 0000000..05b5ae0
+--- /dev/null
++++ b/.github/workflows/pages.yml
+@@ -0,0 +1,55 @@
++# Publica o site no GitHub Pages a cada "git push" na branch main.
++# As músicas ficam na pasta faixas/ e o catálogo é montado automaticamente.
++name: Site no GitHub Pages
++
++on:
++  push:
++    branches: [main]
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  pages: write
++  id-token: write
++
++concurrency:
++  group: pages
++  cancel-in-progress: true
++
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Baixar o código
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Preparar Python
++        uses: actions/setup-python@v5
++        with:
++          python-version: '3.12'
++
++      - name: Montar o catálogo de músicas
++        run: |
++          pip install mutagen==1.47.0
++          python .github/scripts/gerar_catalogo.py
++
++      - name: Configurar Pages
++        uses: actions/configure-pages@v5
++
++      - name: Empacotar o site
++        uses: actions/upload-pages-artifact@v3
++        with:
++          path: .
++
++  deploy:
++    needs: build
++    runs-on: ubuntu-latest
++    environment:
++      name: github-pages
++      url: ${{ steps.deployment.outputs.page_url }}
++    steps:
++      - name: Publicar
++        id: deployment
++        uses: actions/deploy-pages@v4
+diff --git a/.gitignore b/.gitignore
+index 295e96e..2ada63b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,7 @@ capas/*
+ !capas/.htaccess
+ .DS_Store
+ Thumbs.db
++
++# Gerados no GitHub Actions
++catalogo.json
++faixas/_capas/
+diff --git a/assets/app.js b/assets/app.js
+index 630ce2f..de61ca2 100644
+--- a/assets/app.js
++++ b/assets/app.js
+@@ -50,7 +50,7 @@ async function apiCall(path, { method = 'GET', json, body, headers = {} } = {})
+ 
+ /* ---------- estado ---------- */
+ const DEFAULT = { v: 1, site: { name: 'AS Brasil Music', tagline: 'Dê o play e continue ouvindo enquanto usa outros apps.', artist: 'AS Brasil Music' }, tracks: [] };
+-const S = { cat: clone(DEFAULT), published: clone(DEFAULT), loaded: false, dirty: false, filter: 'all', q: '', admin: false, jobs: [], highlight: null, busy: 0 };
++const S = { cat: clone(DEFAULT), published: clone(DEFAULT), loaded: false, static: false, dirty: false, filter: 'all', q: '', admin: false, jobs: [], highlight: null, busy: 0 };
+ const favs = new Set(LS.get('asbm:favs') || []);
+ const byId = id => S.cat.tracks.find(t => t.id === id);
+ const artistOf = t => t.artist || S.cat.site.artist;
+@@ -207,7 +207,7 @@ function renderList() {
+   const list = visibleTracks();
+   const el = $('#list');
+   if (!S.cat.tracks.length) {
+-    el.innerHTML = `<li class="empty"><strong>Nenhuma faixa por aqui ainda</strong>${S.admin ? 'Envie suas primeiras músicas pelo Estúdio.<br><button class="btn btn-primary" id="emptyUp">' + I.upload + '<span>Enviar músicas</span></button>' : 'Volte em breve para ouvir as novidades.'}</li>`;
++    el.innerHTML = `<li class="empty"><strong>Nenhuma faixa por aqui ainda</strong>${S.static ? 'Envie arquivos para a pasta faixas do repositório e eles aparecem aqui.' : S.admin ? 'Envie suas primeiras músicas pelo Estúdio.<br><button class="btn btn-primary" id="emptyUp">' + I.upload + '<span>Enviar músicas</span></button>' : 'Volte em breve para ouvir as novidades.'}</li>`;
+     $('#emptyUp')?.addEventListener('click', openStudio);
+     return;
+   }
+@@ -721,16 +721,24 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.busy) { e.preven
+ /* ---------- inicialização ---------- */
+ renderHero();
+ (async () => {
++  let cat = null;
+   try {
+-    const cat = await apiCall('catalog.php');
+-    if (cat && Array.isArray(cat.tracks)) { S.cat = cat; S.published = clone(cat); }
++    cat = await apiCall('catalog.php');
+     if (cat && cat.limiteMb) MAX_MB = cat.limiteMb;
+-  } catch {
+-    toast('Não foi possível carregar as músicas. Atualize a página em instantes.');
++  } catch {}
++  if (!cat || !Array.isArray(cat.tracks)) {
++    // Sem PHP (ex.: GitHub Pages): usa o catálogo gerado a partir da pasta faixas/
++    try {
++      const r = await fetch('catalogo.json', { cache: 'no-store' });
++      if (r.ok) { cat = await r.json(); S.static = true; }
++    } catch {}
+   }
++  if (cat && Array.isArray(cat.tracks)) { S.cat = cat; S.published = clone(cat); }
++  else toast('Não foi possível carregar as músicas. Atualize a página em instantes.');
+   S.loaded = true;
++  if (S.static) $('#adminLink').hidden = true;
+   renderAll();
+   applyHash();
+-  try { const me = await apiCall('me.php'); if (me && me.logado) { CSRF = me.csrf; setAdmin(true); } } catch {}
++  if (!S.static) { try { const me = await apiCall('me.php'); if (me && me.logado) { CSRF = me.csrf; setAdmin(true); } } catch {} }
+ })();
+ })();
+diff --git a/faixas/LEIA-ME.txt b/faixas/LEIA-ME.txt
+new file mode 100644
+index 0000000..91eff8e
+--- /dev/null
++++ b/faixas/LEIA-ME.txt
+@@ -0,0 +1,7 @@
++Coloque aqui suas músicas (MP3, M4A, WAV, OGG, FLAC ou WEBM).
++
++- O título e o artista vêm das informações do próprio arquivo. Sem elas, vale o nome do arquivo.
++- Para escolher a capa, coloque uma imagem com o MESMO nome da música:
++  "Minha Musica.mp3" + "Minha Musica.jpg"
++- Para mudar o nome do site ou a frase de apresentação, edite site.json.
++- Depois do push, o site atualiza sozinho em 1 ou 2 minutos.
+diff --git a/faixas/site.json b/faixas/site.json
+new file mode 100644
+index 0000000..9a4a034
+--- /dev/null
++++ b/faixas/site.json
+@@ -0,0 +1,5 @@
++{
++  "name": "AS Brasil Music",
++  "tagline": "Dê o play e continue ouvindo enquanto usa outros apps.",
++  "artist": "AS Brasil Music"
++}
+diff --git a/index.html b/index.html
+index f0be319..129a2cb 100644
+--- a/index.html
++++ b/index.html
+@@ -19,8 +19,8 @@
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;800&display=swap">
+-<link rel="stylesheet" href="assets/style.css?v=1">
+-<script src="assets/app.js?v=1" defer></script>
++<link rel="stylesheet" href="assets/style.css?v=2">
++<script src="assets/app.js?v=2" defer></script>
+ </head>
+ <body>
+ <div class="aura" aria-hidden="true"></div>
+diff --git a/sw.js b/sw.js
+index 1a9478c..86d525c 100644
+--- a/sw.js
++++ b/sw.js
+@@ -1,7 +1,7 @@
+ /* Service worker: deixa o site instalável e abre a casca do app mesmo com conexão ruim.
+    Áudio, capas e API sempre vão direto para a rede. */
+-const VERSION = 'asbm-v1';
+-const SHELL = ['./', 'index.html', 'assets/style.css?v=1', 'assets/app.js?v=1', 'assets/icon.svg', 'assets/icon-192.png', 'manifest.webmanifest'];
++const VERSION = 'asbm-v2';
++const SHELL = ['./', 'index.html', 'assets/style.css?v=2', 'assets/app.js?v=2', 'assets/icon.svg', 'assets/icon-192.png', 'manifest.webmanifest'];
+ 
+ self.addEventListener('install', e => {
+   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+@@ -12,7 +12,7 @@ self.addEventListener('activate', e => {
+ self.addEventListener('fetch', e => {
+   const url = new URL(e.request.url);
+   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+-  if (/\/(api|musicas|capas)\//.test(url.pathname) || e.request.headers.has('range')) return;
++  if (/\/(api|musicas|capas|faixas)\//|catalogo\.json$/.test(url.pathname) || e.request.headers.has('range')) return;
+   e.respondWith(
+     fetch(e.request).then(res => {
+       if (res.ok) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); }
