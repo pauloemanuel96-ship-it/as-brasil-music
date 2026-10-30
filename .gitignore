@@ -1,0 +1,10 @@
+# Senha e dados ficam só na hospedagem
+api/config.php
+data/*
+!data/.htaccess
+musicas/*
+!musicas/.htaccess
+capas/*
+!capas/.htaccess
+.DS_Store
+Thumbs.db

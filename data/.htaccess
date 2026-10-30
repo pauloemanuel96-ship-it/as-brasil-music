@@ -1,0 +1,8 @@
+# Pasta interna: catálogo, sessões de envio e tentativas de login. Nunca acessível pelo navegador.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>
